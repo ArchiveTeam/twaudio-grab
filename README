@@ -1,0 +1,8 @@
+Downloading a Twaud.io profile: get the username and run
+
+  ./twaudiorip.sh $USERNAME
+
+to download the index page and newest audio clips for the user.
+
+Unfortunately, we can only download mp3's that are listed in the user's
+RSS feed.
