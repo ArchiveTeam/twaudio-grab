@@ -1,5 +1,6 @@
 #!/bin/bash
 #
+# Version 2: Handle expiration of Amazon S3 signatures.
 # Version 1.
 #
 # Download the newest mp3 files from a Twaud.io user.
@@ -36,43 +37,63 @@ echo "Downloading ${USERNAME}:"
 mkdir -p $DATADIR
 touch $DATADIR/.incomplete
 
-# touch $DATADIR/.incomplete
-
 # grab profile page
-wget -nv -a "$DATADIR/wget.log" -nc -U "$USER_AGENT" -O $DATADIR/index.html "http://twaud.io/users/${USERNAME}"
+wget -nv -q -nc -U "$USER_AGENT" -O $DATADIR/index.html "http://twaud.io/users/${USERNAME}"
 
 # grab rss feed
-wget -nv -a "$DATADIR/wget.log" -nc -U "$USER_AGENT" -O $DATADIR/rss.xml "http://twaud.io/users/${USERNAME}.xml"
+wget -nv -q -nc -U "$USER_AGENT" -O $DATADIR/rss.xml "http://twaud.io/users/${USERNAME}.xml"
 
-# find urls
-# grep output: first line contains audio id,  http://twaud.io/audio/$ID
-#              second line contains s3 url of mp3
-audio_files=`grep -o -E 'http://twaud.io/audio/[^<]+|http://s3[^"]+' $DATADIR/rss.xml`
-
-# parse
-for line in $audio_files
+download_finished=0
+while [[ $download_finished -ne 1 ]]
 do
-  if [[ $line =~ twaud.io/audio/ ]]
-  then
-    # extract clip id from url (http://twaud.io/audio/$ID)
-    cur_clip_id=${line:22}
+  # find urls
+  # grep output: first line contains audio id,  http://twaud.io/audio/$ID
+  #              second line contains s3 url of mp3
+  audio_files=`grep -o -E 'http://twaud.io/audio/[^<]+|http://s3[^"]+' $DATADIR/rss.xml`
 
-  else
-    if [[ $line =~ s3.amazonaws.com ]]
+  download_finished=1
+  # parse
+  for line in $audio_files
+  do
+    if [[ $line =~ twaud.io/audio/ ]]
     then
-      echo " - clip ${cur_clip_id}"
-      # download clip
-      url=${line//&amp;/&}
-      wget -nv -a "$DATADIR/wget.log" -nc -U "$USER_AGENT" -O $DATADIR/${cur_clip_id}.mp3 "$url"
-      if [[ $? -ne 0 ]]
-      then
-        echo "ERROR: wget returned a non-zero exit code! See $DATADIR/wget.log"
-      fi
+      # extract clip id from url (http://twaud.io/audio/$ID)
+      cur_clip_id=${line:22}
 
-      # download html
-      wget -nv -a "$DATADIR/wget.log" -nc -U "$USER_AGENT" -O $DATADIR/${cur_clip_id}.html "http://twaud.io/${cur_clip_id}"
+    else
+      if [[ $line =~ s3.amazonaws.com ]]
+      then
+        echo " - clip ${cur_clip_id}"
+        # download clip
+        url=${line//&amp;/&}
+        if [[ ! -f $DATADIR/${cur_clip_id}.mp3 ]]
+        then
+          wget_header_file=wget_out_$$
+          wget -q -nc -U "$USER_AGENT" -O $DATADIR/${cur_clip_id}.mp3 "$url" -S 2>$wget_header_file
+          wget_headers=`cat $wget_header_file`
+          rm -f $wget_header_file
+
+          if [[ ! $wget_headers =~ 200 ]]
+          then
+            if [[ $wget_headers =~ Forbidden ]]
+            then
+              echo " -- expired, redownload RSS feed for fresh signatures"
+              rm $DATADIR/rss.xml
+              wget -nv -q -nc -U "$USER_AGENT" -O $DATADIR/rss.xml "http://twaud.io/users/${USERNAME}.xml"
+              download_finished=0
+              break
+            else
+              echo "ERROR: wget returned an error on ${url}! See $DATADIR/wget.log"
+              echo $wget_headers >> $DATADIR/wget.log
+            fi
+          fi
+        fi
+
+        # download html
+        wget -nv -q -nc -U "$USER_AGENT" -O $DATADIR/${cur_clip_id}.html "http://twaud.io/${cur_clip_id}"
+      fi
     fi
-  fi
+  done
 done
 
 rm $DATADIR/.incomplete
