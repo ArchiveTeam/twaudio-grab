@@ -1,5 +1,6 @@
 #!/bin/bash
 #
+# Version 3: Solve problem with profile image in grep output.
 # Version 2: Handle expiration of Amazon S3 signatures.
 # Version 1.
 #
@@ -49,7 +50,7 @@ do
   # find urls
   # grep output: first line contains audio id,  http://twaud.io/audio/$ID
   #              second line contains s3 url of mp3
-  audio_files=`grep -o -E 'http://twaud.io/audio/[^<]+|http://s3[^"]+' $DATADIR/rss.xml`
+  audio_files=`grep -o -E 'http://twaud.io/audio/[^<]+|http://s3.amazonaws.com/twaudio-production[^"]+' $DATADIR/rss.xml`
 
   download_finished=1
   # parse
